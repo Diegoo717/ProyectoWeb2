@@ -34,26 +34,24 @@ jobs:
         run: |
           python manage.py test  # Ejecutar las pruebas de Django
 
-      - name: Set up SSH for deployment
+      - name: Configure AWS CLI
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -t rsa <EC2_IP> >> ~/.ssh/known_hosts
-        env:
-          EC2_IP: ${{ secrets.EC2_IP }}  # Agrega la IP de tu EC2 en los secretos de GitHub
-
-      - name: Deploy to EC2
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws configure set region us-east-1  # O la región que uses
+          
+      - name: Deploy to EC2 using SSM
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_IP }} << 'EOF'
-            cd /path/to/your/project
-            git pull origin main  # Actualizar el código desde GitHub
-            source /path/to/your/venv/bin/activate  # Activar el entorno virtual
-            pip install -r requirements.txt  # Instalar dependencias
-            python manage.py migrate  # Ejecutar migraciones de la base de datos
-            python manage.py collectstatic --noinput  # Recoger archivos estáticos
-            sudo systemctl restart gunicorn  # Reiniciar el servicio Gunicorn
-            sudo systemctl restart nginx  # Reiniciar Nginx (si lo usas)
-          EOF
-        env:
-          EC2_IP: ${{ secrets.EC2_IP }}  # Agrega la IP de tu EC2 en los secretos de GitHub
+          aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --targets "Key=instanceIds,Values=${{ secrets.EC2_INSTANCE_ID }}" \
+            --parameters 'commands=[
+              "cd /path/to/your/project",
+              "git pull origin main",  # Actualizar el código desde GitHub
+              "source /path/to/your/venv/bin/activate",  # Activar el entorno virtual
+              "pip install -r requirements.txt",  # Instalar dependencias
+              "python manage.py migrate",  # Ejecutar migraciones de la base de datos
+              "python manage.py collectstatic --noinput",  # Recoger archivos estáticos
+              "sudo systemctl restart gunicorn",  # Reiniciar el servicio Gunicorn
+              "sudo systemctl restart nginx"  # Reiniciar Nginx (si lo usas)
+            ]'
